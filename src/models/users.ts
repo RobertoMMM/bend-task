@@ -60,7 +60,7 @@ export const setupUsersModel = (
         allowNull: false,
         validate: {
           len: {
-            args: [64, 64],
+            args: [97, 97],
             msg: usersResponses.dbValidation.passwordHash.len,
           },
         },

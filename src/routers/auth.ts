@@ -4,6 +4,8 @@ import { CreateUserData, LoginUserData } from '../types';
 import { User } from '../models/users';
 import { generateToken } from '../middleware/auth';
 import { usersResponses } from '../config/responseMessages';
+import { BinaryLike, createHash, randomBytes } from 'crypto';
+import { HASH_ALGORITHM, SALT_LENGTH } from '../config';
 
 const handleResponse = (res: Response, status: any) => {
   const { code, message, errors, token } = status;
@@ -11,6 +13,18 @@ const handleResponse = (res: Response, status: any) => {
     return res.status(code).json({ message, token, errors });
   }
   return res.status(code).json({ message, errors });
+};
+
+const hashPassword = (password: BinaryLike) => {
+  return createHash(HASH_ALGORITHM).update(password).digest('hex');
+};
+
+const saltPassword = (password: BinaryLike) => {
+  const salt: BinaryLike = randomBytes(SALT_LENGTH).toString('hex');
+
+  const hashedPassword = hashPassword(`${salt}${password}`);
+
+  return `${salt}:${hashedPassword}`;
 };
 
 const signupUser = async (
@@ -21,7 +35,14 @@ const signupUser = async (
   const { models } = sequelizeClient;
 
   try {
-    await models.User.create({ type: 'blogger', name, email, passwordHash });
+    const saltedPassword = saltPassword(passwordHash);
+
+    await models.User.create({
+      type: 'blogger',
+      name,
+      email,
+      passwordHash: saltedPassword,
+    });
 
     return {
       ...usersResponses.success.userCreated,
@@ -54,7 +75,7 @@ const loginUser = async (
   data: LoginUserData,
   sequelizeClient: Sequelize
 ): Promise<any> => {
-  const { email, password: passwordHash } = data;
+  const { email, password } = data;
   const { models } = sequelizeClient;
 
   try {
@@ -62,7 +83,14 @@ const loginUser = async (
       where: { email },
     })) as User;
 
-    if (searchedUser && searchedUser.passwordHash === passwordHash) {
+    if (!searchedUser) {
+      return usersResponses.errors.invalidCredentials;
+    }
+
+    const [salt, hash] = searchedUser.passwordHash.split(':');
+    const passwordHash = hashPassword(`${salt}${password}`);
+
+    if (searchedUser && hash === passwordHash) {
       return {
         ...usersResponses.success.login,
         token: generateToken({
